@@ -1,7 +1,13 @@
 const path = require('path');
 const fs = require('fs');
+const pgDb = require('./db-postgres');
 
-const DB_TYPE = (process.env.DB_TYPE || 'sqlite').toLowerCase();
+function resolveDbType() {
+  if (process.env.DATABASE_URL) return 'postgres';
+  return (process.env.DB_TYPE || 'sqlite').toLowerCase();
+}
+
+const DB_TYPE = resolveDbType();
 
 let db = null;
 let mssqlPool = null;
@@ -192,6 +198,12 @@ function initSqlite() {
 }
 
 async function initDatabase() {
+  if (DB_TYPE === 'postgres') {
+    await pgDb.initPostgres();
+    activeDbType = 'postgres';
+    return;
+  }
+
   if (DB_TYPE === 'mssql') {
     try {
       await initMssql();
@@ -242,6 +254,7 @@ function normalizePayment(row) {
 }
 
 async function logEmailNotification(data) {
+  if (activeDbType === 'postgres') return pgDb.logEmailNotification(data);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     await mssqlPool.request()
@@ -276,6 +289,7 @@ async function logEmailNotification(data) {
 }
 
 async function getPendingEmails() {
+  if (activeDbType === 'postgres') return pgDb.getPendingEmails();
   if (activeDbType === 'mssql') {
     const result = await mssqlPool.request().query(`
       SELECT TOP 20 * FROM EmailNotifications WHERE Status = 'Pending' ORDER BY CreatedAt ASC
@@ -289,6 +303,7 @@ async function getPendingEmails() {
 }
 
 async function markEmailSent(id) {
+  if (activeDbType === 'postgres') return pgDb.markEmailSent(id);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     await mssqlPool.request()
@@ -301,6 +316,7 @@ async function markEmailSent(id) {
 }
 
 async function insertWorkRequest(data) {
+  if (activeDbType === 'postgres') return pgDb.insertWorkRequest(data);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     const result = await mssqlPool.request()
@@ -348,6 +364,7 @@ async function insertWorkRequest(data) {
 async function insertPayment(data) {
   const status = data.paymentStatus || 'PendingVerification';
 
+  if (activeDbType === 'postgres') return pgDb.insertPayment(data);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     const result = await mssqlPool.request()
@@ -384,6 +401,7 @@ async function insertPayment(data) {
 }
 
 async function markWorkRequestPaid(orderId) {
+  if (activeDbType === 'postgres') return pgDb.markWorkRequestPaid(orderId);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     await mssqlPool.request()
@@ -396,6 +414,7 @@ async function markWorkRequestPaid(orderId) {
 }
 
 async function updatePaymentStatus(orderId, status) {
+  if (activeDbType === 'postgres') return pgDb.updatePaymentStatus(orderId, status);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     await mssqlPool.request()
@@ -409,6 +428,7 @@ async function updatePaymentStatus(orderId, status) {
 }
 
 async function getPaymentByOrderId(orderId) {
+  if (activeDbType === 'postgres') return normalizePayment(await pgDb.getPaymentByOrderId(orderId));
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     const result = await mssqlPool.request()
@@ -422,6 +442,7 @@ async function getPaymentByOrderId(orderId) {
 }
 
 async function isTransactionIdUsed(transactionId) {
+  if (activeDbType === 'postgres') return pgDb.isTransactionIdUsed(transactionId);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     const result = await mssqlPool.request()
@@ -442,6 +463,7 @@ async function isTransactionIdUsed(transactionId) {
 }
 
 async function insertFraudAttempt(data) {
+  if (activeDbType === 'postgres') return pgDb.insertFraudAttempt(data);
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     await mssqlPool.request()
@@ -476,6 +498,7 @@ async function insertFraudAttempt(data) {
 }
 
 async function getWorkRequest(orderId) {
+  if (activeDbType === 'postgres') return normalizeWorkRequest(await pgDb.getWorkRequest(orderId));
   if (activeDbType === 'mssql') {
     const sql = require('mssql');
     const result = await mssqlPool.request()

@@ -330,7 +330,7 @@ async function startServer() {
 
   app.listen(PORT, async () => {
     console.log(`\n🚀 Aryan Tech Zone server running at http://localhost:${PORT}`);
-    console.log(`🗄️  Database: ${db.getDbType()} (SQL Server password: root)`);
+    console.log(`🗄️  Database: ${db.getDbType()}`);
 
     const emailStatus = await email.verifyEmailConnection();
     if (emailStatus.ok) {
