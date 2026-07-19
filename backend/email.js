@@ -1,3 +1,5 @@
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 const nodemailer = require("nodemailer");
 const db = require("./db");
 
@@ -63,6 +65,13 @@ function invoiceRow(label, value, highlight) {
       <td style="padding: 10px 0; border-bottom: 1px solid #e2e8f0; ${highlight ? "font-weight: bold; color: #1e40af;" : ""}">${value}</td>
     </tr>
   `;
+}
+
+async function sendAdminSmsNotification(paymentData, workData) {
+  const mobile = process.env.ADMIN_MOBILE || '9319704764';
+  const message = `New payment pending approval. Order ${paymentData.orderId}. Amount ₹${paymentData.amount}. Verify at /admin`;
+  console.log(`📱 SMS notification (simulated): ${mobile} -> ${message}`);
+  return { sent: true, mobile, message };
 }
 
 async function saveEmailLog(
@@ -350,7 +359,7 @@ async function sendFakeTransactionAlert(workData, attempt) {
   }
 }
 
-async function sendPaymentPendingEmail(paymentData, workData, approveUrl) {
+async function sendPaymentPendingEmail(paymentData, workData) {
   const adminEmail = process.env.ADMIN_EMAIL;
   const date = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   const subject = `[Verify Payment] ₹${paymentData.amount} | ${paymentData.orderId}`;
@@ -371,9 +380,9 @@ async function sendPaymentPendingEmail(paymentData, workData, approveUrl) {
           ${invoiceRow("Submitted", date)}
         </table>
         <div style="text-align: center; margin-top: 24px;">
-          <a href="${approveUrl}" style="display: inline-block; background: #10b981; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold;">✅ Approve — Payment Received in Account</a>
+          <p style="font-weight: bold; color: #065f46;">Open the admin verification page and approve this payment manually.</p>
         </div>
-        <p style="margin-top: 16px; color: #64748b; font-size: 13px; text-align: center;">Only click Approve if you see ₹${paymentData.amount} in your HDFC/UPI account.</p>
+        <p style="margin-top: 16px; color: #64748b; font-size: 13px; text-align: center;">Use your admin credentials at /admin and verify the payment once you see ₹${paymentData.amount} in your HDFC/UPI account.</p>
       </div>
     </div>
   `;

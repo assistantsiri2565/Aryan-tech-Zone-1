@@ -1,18 +1,34 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const db = require('./db');
 const email = require('./email');
 const paymentVerify = require('./payment-verify');
+const adminAuth = require('./admin-auth');
 const UPI_ID = process.env.UPI_ID || process.env.UPI_NUMBER || 'aryankumar112211225-1@okhdfcbank';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+function parseCookies(req) {
+  const cookieHeader = req.headers.cookie || '';
+  return cookieHeader.split(';').reduce((acc, part) => {
+    const [key, ...valueParts] = part.trim().split('=');
+    if (!key) return acc;
+    acc[key] = decodeURIComponent(valueParts.join('='));
+    return acc;
+  }, {});
+}
+
+app.use(cors({ credentials: true, origin: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
+app.use((req, res, next) => {
+  const cookies = parseCookies(req);
+  req.adminSession = cookies.adminAuth === '1';
+  next();
+});
 
 function generateOrderId() {
   const date = new Date();
@@ -223,11 +239,8 @@ app.post('/api/payment', async (req, res) => {
 
     await db.insertPayment(paymentData);
 
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-    const approveToken = paymentVerify.getApproveToken(orderId);
-    const approveUrl = `${baseUrl}/api/admin/approve-payment?orderId=${encodeURIComponent(orderId)}&token=${approveToken}`;
-
-    await email.sendPaymentPendingEmail(paymentData, workData, approveUrl);
+    await email.sendPaymentPendingEmail(paymentData, workData);
+    await email.sendAdminSmsNotification(paymentData, workData);
 
     res.status(202).json({
       verified: false,
@@ -259,62 +272,119 @@ app.get('/api/payment-status/:orderId', async (req, res) => {
   }
 });
 
-app.get('/api/admin/approve-payment', async (req, res) => {
+app.post('/api/admin/login', express.json(), async (req, res) => {
   try {
-    const { orderId, token } = req.query;
+    const { username, password } = req.body || {};
+    const valid = username === 'Aryan_Tech_Zone' && password === 'Aryan9319@';
+    if (!valid) {
+      return res.status(401).json({ ok: false, message: 'Invalid admin credentials.' });
+    }
 
-    if (!paymentVerify.verifyApproveToken(orderId, token)) {
-      return res.status(403).send('<h1>Invalid or expired approval link.</h1>');
+    res.setHeader('Set-Cookie', 'adminAuth=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400');
+    req.adminSession = true;
+    res.json({ ok: true, message: 'Admin login successful.' });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Login failed.' });
+  }
+});
+
+app.get('/api/admin/payments', async (req, res) => {
+  try {
+    if (!req.adminSession) {
+      return res.status(401).json({ ok: false, message: 'Unauthorized.' });
+    }
+
+    const pendingPayments = [];
+    const allPayments = [];
+
+    const paymentRows = await db.getAllPayments();
+    for (const payment of paymentRows) {
+      const workRequest = await db.getWorkRequest(payment.OrderId);
+      allPayments.push({
+        orderId: payment.OrderId,
+        customer: workRequest ? workRequest.ClientName : 'Unknown',
+        email: workRequest ? workRequest.ClientEmail : '',
+        amount: payment.Amount,
+        transactionId: payment.TransactionId,
+        upiNumber: payment.UpiNumber,
+        status: payment.PaymentStatus,
+        createdAt: payment.CreatedAt,
+        projectTitle: workRequest ? workRequest.ProjectTitle : ''
+      });
+    }
+
+    const pending = allPayments.filter((item) => item.status !== 'Verified');
+    pendingPayments.push(...pending);
+
+    res.json({ ok: true, payments: pendingPayments });
+  } catch (err) {
+    console.error('Admin payments error:', err);
+    res.status(500).json({ ok: false, message: 'Failed to load payments.' });
+  }
+});
+
+app.post('/api/admin/verify-payment', async (req, res) => {
+  try {
+    if (!req.session || !req.session.adminLoggedIn) {
+      return res.status(401).json({ ok: false, message: 'Unauthorized.' });
+    }
+
+    const { orderId } = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ ok: false, message: 'Order ID is required.' });
     }
 
     const payment = await db.getPaymentByOrderId(orderId);
     if (!payment) {
-      return res.status(404).send('<h1>Payment not found.</h1>');
+      return res.status(404).json({ ok: false, message: 'Payment not found.' });
     }
 
     if (payment.PaymentStatus === 'Verified') {
-      return res.send('<h1>✅ Payment already approved.</h1><p>Order: ' + orderId + '</p>');
+      return res.json({ ok: true, message: 'Payment already verified.' });
     }
 
     await db.updatePaymentStatus(orderId, 'Verified');
     await db.markWorkRequestPaid(orderId);
 
     const workRequest = await db.getWorkRequest(orderId);
-    const workData = {
-      orderId: workRequest.OrderId,
-      clientName: workRequest.ClientName,
-      clientEmail: workRequest.ClientEmail,
-      clientPhone: workRequest.ClientPhone,
-      serviceType: workRequest.ServiceType,
-      projectTitle: workRequest.ProjectTitle,
-      projectDescription: workRequest.ProjectDescription,
-      budget: workRequest.Budget,
-      deadline: workRequest.Deadline
-    };
+    if (workRequest) {
+      const paymentData = {
+        orderId: payment.OrderId,
+        transactionId: payment.TransactionId,
+        amount: payment.Amount,
+        upiNumber: payment.UpiNumber,
+        paymentNote: payment.PaymentNote
+      };
+      await email.sendPaymentEmail(paymentData, {
+        orderId: workRequest.OrderId,
+        clientName: workRequest.ClientName,
+        clientEmail: workRequest.ClientEmail,
+        clientPhone: workRequest.ClientPhone,
+        serviceType: workRequest.ServiceType,
+        projectTitle: workRequest.ProjectTitle,
+        projectDescription: workRequest.ProjectDescription,
+        budget: workRequest.Budget,
+        deadline: workRequest.Deadline
+      });
+    }
 
-    const paymentData = {
-      orderId: payment.OrderId,
-      transactionId: payment.TransactionId,
-      amount: payment.Amount,
-      upiNumber: payment.UpiNumber,
-      paymentNote: payment.PaymentNote
-    };
-
-    await email.sendPaymentEmail(paymentData, workData);
-
-    res.send(`
-      <html><body style="font-family:Arial;text-align:center;padding:40px;">
-        <h1 style="color:#10b981;">✅ Payment Approved!</h1>
-        <p>Order <strong>${orderId}</strong> is confirmed.</p>
-        <p>₹${payment.Amount} — Transaction: ${payment.TransactionId}</p>
-        <p>Client has been notified. You can close this page.</p>
-      </body></html>
-    `);
+    res.json({ ok: true, message: 'Payment verified successfully.' });
   } catch (err) {
-    console.error('Approve payment error:', err);
-    res.status(500).send('<h1>Error approving payment.</h1>');
+    console.error('Verify payment error:', err);
+    res.status(500).json({ ok: false, message: 'Failed to verify payment.' });
   }
 });
+
+app.post('/api/admin/logout', async (req, res) => {
+  res.setHeader('Set-Cookie', 'adminAuth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  req.adminSession = false;
+  res.json({ ok: true, message: 'Logged out.' });
+});
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/admin.html'));
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });

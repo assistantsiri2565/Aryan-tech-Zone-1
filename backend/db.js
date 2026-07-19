@@ -441,6 +441,18 @@ async function getPaymentByOrderId(orderId) {
   return normalizePayment(row);
 }
 
+async function getAllPayments() {
+  if (activeDbType === 'postgres') return (await pgDb.getAllPayments()).map(normalizePayment);
+  if (activeDbType === 'mssql') {
+    const sql = require('mssql');
+    const result = await mssqlPool.request().query(`SELECT * FROM Payments ORDER BY Id DESC`);
+    return result.recordset.map(normalizePayment);
+  }
+
+  const rows = db.prepare(`SELECT * FROM Payments ORDER BY Id DESC`).all();
+  return rows.map(normalizePayment);
+}
+
 async function isTransactionIdUsed(transactionId) {
   if (activeDbType === 'postgres') return pgDb.isTransactionIdUsed(transactionId);
   if (activeDbType === 'mssql') {
@@ -518,6 +530,7 @@ module.exports = {
   markWorkRequestPaid,
   updatePaymentStatus,
   getPaymentByOrderId,
+  getAllPayments,
   isTransactionIdUsed,
   insertFraudAttempt,
   getWorkRequest,

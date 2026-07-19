@@ -123,6 +123,11 @@ async function getPaymentByOrderId(orderId) {
   return result.rows[0] || null;
 }
 
+async function getAllPayments() {
+  const result = await pool.query(`SELECT * FROM "Payments" ORDER BY "Id" DESC`);
+  return result.rows;
+}
+
 async function isTransactionIdUsed(transactionId) {
   const result = await pool.query(`
     SELECT COUNT(*) AS cnt FROM "Payments"
@@ -172,6 +177,7 @@ module.exports = {
   markWorkRequestPaid,
   updatePaymentStatus,
   getPaymentByOrderId,
+  getAllPayments,
   isTransactionIdUsed,
   insertFraudAttempt,
   getWorkRequest,
