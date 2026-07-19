@@ -11,7 +11,8 @@
     "dev": "node --watch server.js",
     "test-email": "node test-email.js",
     "setup-gmail": "node setup-gmail.js",
-    "setup-sql": "node setup-sql.js"
+    "setup-sql": "node setup-sql.js",
+    "test:setup-gmail": "node --test test/setup-gmail.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

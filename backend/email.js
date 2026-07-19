@@ -4,9 +4,12 @@ const db = require("./db");
 let transporter = null;
 
 function isEmailConfigured() {
-  const pass = process.env.EMAIL_PASS;
+  const pass = (process.env.EMAIL_PASS || "").replace(/\s/g, "");
   if (!process.env.EMAIL_USER || !process.env.ADMIN_EMAIL) return false;
   if (!pass || pass === "qzgi tsru vauw tjas") return false;
+  if (["dummypassword", "changeme", "your-app-password", "example", "password", "test123"].includes(pass.toLowerCase())) {
+    return false;
+  }
   return true;
 }
 
